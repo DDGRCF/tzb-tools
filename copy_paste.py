@@ -142,14 +142,13 @@ def copy_paste(obj_collect, dst_dir, dst_imgs_fname, dst_anns_fname):
     dst_anns_dir = osp.join(dst_dir, dst_anns_fname)
     all_obj = sum(obj_collect, [])
     for file in tqdm(os.listdir(dst_imgs_dir)):
-        i = 0
         img = cv2.imread(osp.join(dst_imgs_dir, file))
         h_img, w_img = img.shape[:2]
         select_num_obj = np.random.randint(4,11)
         select_obj = random.choices(population=all_obj, k=select_num_obj)
         ann = file.split('.')[0] + '.txt'
         ann_dir = osp.join(dst_anns_dir, ann)
-        rbboxs, rects = _single_collect(ann_dir)
+        rbboxs, _ = _single_collect(ann_dir)
         rbboxs = np.array(rbboxs).reshape(-1, 8)
         for obj in select_obj:
             h_obj, w_obj = obj[0].shape[:2]
@@ -160,14 +159,19 @@ def copy_paste(obj_collect, dst_dir, dst_imgs_fname, dst_anns_fname):
                 poly = _write_ann(obj[1], ann_dir, proposed_h, proposed_w)
                 rbboxs = np.vstack([rbboxs, poly])
             else:    
-                proposed_obj = torch.tensor([proposed_w + w_obj/2, proposed_h + h_obj/2, w_obj, h_obj, 0])
-                rotated_bboxs = qbox2rbox(torch.tensor(rbboxs))   # rotated_bboxs shape is (..., 5) (xc, yc, w, h, t)
-                iof = rbbox_overlaps(proposed_obj, rotated_bboxs, mode='iof')
+                proposed_obj = torch.tensor([proposed_w + w_obj/2, proposed_h + h_obj/2, w_obj, h_obj, 0]).reshape(-1, 5)
+                rotated_bboxs = qbox2rbox(torch.tensor(rbboxs, dtype=int))   # rotated_bboxs shape is (..., 5) (xc, yc, w, h, t)
+                iof = rbbox_overlaps(proposed_obj, rotated_bboxs.float(), mode='iof').squeeze()
 
-                while np.nonzero(iof < 0.2): 
+                while len(torch.nonzero(iof > 0.2)) != 0: 
                     proposed_h = random.randint(0, h_img-h_obj) 
                     proposed_w = random.randint(0, w_img-w_obj)
-                    proposed_obj = torch.tensor([proposed_w + w_obj/2, proposed_h + h_obj/2, w_obj, h_obj, 0])
+                    proposed_obj = torch.tensor([proposed_w + w_obj/2, proposed_h + h_obj/2, w_obj, h_obj, 0]).reshape(-1, 5)
+                    iof = rbbox_overlaps(proposed_obj, rotated_bboxs.float(), mode='iof').squeeze()
+                img[proposed_h:proposed_h+h_obj, proposed_w:proposed_w+w_obj, :] = obj[0]
+                poly = _write_ann(obj[1], ann_dir, proposed_h, proposed_w)
+                rbboxs = np.vstack([rbboxs, poly])
+
 
 
 
