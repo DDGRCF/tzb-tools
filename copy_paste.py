@@ -1,5 +1,6 @@
 import argparse
 import cv2
+import copy
 import os 
 import os.path as osp
 import numpy as np
@@ -121,7 +122,7 @@ def collect_objects(file, src_dir, src_imgs_fname, src_anns_fname):
         rbbox = rbboxs[index]
         rect = rects[index]
         theta = thetas[index]
-        x_lt, y_lt, x_rb, y_rb = rect[0], rect[1], rect[0]+rect[2], rect[1]+rect[3] 
+        x_lt, y_lt, x_rb, y_rb = rect[0], rect[1], rect[0]+rect[2] - 1, rect[1]+rect[3] - 1 
         if x_lt < 0 or x_rb < 0 or y_lt < 0 or y_rb < 0 or x_lt > img_w or x_rb > img_w or y_lt > img_h or y_rb > img_h :
             continue
         mask = np.zeros(img.shape[:2])
@@ -142,13 +143,14 @@ def collect_objects(file, src_dir, src_imgs_fname, src_anns_fname):
     
     return obj_collect
 
-def _write_ann(poly, ann_dir, h, w):
+def _write_ann(obj, ann_dir, h, w):
     """write a poly annotation to ann file
 
     Args:
         poly(np.array): shape(4,2)
         ann_dir(str): dir of proposed annotation file 
     """
+    poly = copy.deepcopy(obj) 
     poly[:, 0] = poly[:, 0] + w
     poly[:, 1] = poly[:, 1] + h
     poly = poly.reshape(1,-1).squeeze()
