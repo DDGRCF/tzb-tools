@@ -2,18 +2,21 @@ import os
 from glob import glob
 
 import cv2
+import numpy as np
 from tqdm import tqdm
 
 
 def main():
     type="ship"
     root = "/disk0/dataset/TianzhiBk/ship/train"
-    dst = "/disk0/dataset/Tianzhi/ship"
+    dst = "/disk0/dataset/Tianzhi/ship/tmp"
     img_dir = os.path.join(root, "images")        
     label_dir = os.path.join(root, "labelTxt")
 
     dst_img_dir = os.path.join(dst, "images")
     dst_label_dir = os.path.join(dst, "labels")
+    os.makedirs(dst_img_dir, exist_ok=True)
+    os.makedirs(dst_label_dir, exist_ok=True)
 
     prefix = "tzb"
     for ann_file in tqdm(glob(os.path.join(label_dir, "*.txt"))):
@@ -38,6 +41,10 @@ def main():
                 line = line.strip()
                 line = line.split(",")
                 line = line[1:]
+                box = np.asarray(list(map(float, line)), dtype=np.int32)
+                rect = cv2.minAreaRect(box.reshape(-1, 2))
+                box = cv2.boxPoints(rect).reshape(-1).tolist()
+                line = list(map(str, box))
                 line.append(type)
                 line.append('0')
                 line = " ".join(line)  + "\n"

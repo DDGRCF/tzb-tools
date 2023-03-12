@@ -1,6 +1,5 @@
 import argparse
 import os
-import random
 from functools import partial
 from pathlib import Path
 
@@ -25,6 +24,7 @@ def single_visualizer(ann_file, img_dir, save_img_dir,
                       img_suffix=".png", classes=None):
     with open(ann_file, "r") as f:
         lines = f.readlines()
+
     if not len(lines):
         return
 
@@ -79,6 +79,7 @@ def main():
                         classes=classes)
 
     print("Begin visualize the images...")
+
     process_map(deal_func, ann_set, chunksize=max(int(len(ann_set) / 10), 1))
 
 
