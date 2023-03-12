@@ -17,7 +17,7 @@ def get_args():
     parser.add_argument('src_dir', type=str, help='ori_dirs')
     parser.add_argument('dst_dir', type=str, help='dst_dirs')
     parser.add_argument('--src_imgs_fname', type=str, help='folder name for imgs', default='images')
-    parser.add_argument('--src_anns_fname', type=str, help='folder name for anns', default='labels')
+    parser.add_argument('--src_anns_fname', type=str, help='folder name for anns', default='annfiles')
     parser.add_argument('--dst_imgs_fname', type=str, help='folder name for imgs', default='images')
     parser.add_argument('--dst_anns_fname', type=str, help='folder name for anns', default='annfiles')
     parser.add_argument('--classes', nargs='+', type=str, default='ship')
@@ -57,13 +57,13 @@ def _single_collect(file):
                 # obb and rbbox is the same box with different format
                 obb = cv2.minAreaRect(poly)    # x,y,w,h,theta
                 theta = obb[2]
-                area = obb[1][0] * obb[1][1]
-                if area <= 200 or area >= 16000:
-                    continue
-                w_h = [i*1.2 for i in list(obb[1])]
-                obb = list(obb)
-                obb[1] = w_h
-                obb = tuple(obb)
+                # area = obb[1][0] * obb[1][1]
+                # if area <= 200 or area >= 16000:
+                #     continue
+                # w_h = [i*1.2 for i in list(obb[1])]
+                # obb = list(obb)
+                # obb[1] = w_h
+                # obb = tuple(obb)
                 rbbox = cv2.boxPoints(obb)   # poly (x1,y1,x2,y2,x3,y3,x4,y4)
                 rect = cv2.boundingRect(rbbox) # (x_lt,y_lt,w,h)
                 rbboxs.append(rbbox)
@@ -110,7 +110,7 @@ def collect_objects(file, src_dir, src_imgs_fname, src_anns_fname):
     src_imgs_dir = osp.join(src_dir, src_imgs_fname)
     src_anns_dir = osp.join(src_dir, src_anns_fname)
     
-    img_name = file.split(".")[0] + ".tif"
+    img_name = file.split(".")[0] + ".png"
     file_dir = osp.join(src_anns_dir, file)
     img = cv2.imread(osp.join(src_imgs_dir, img_name))
     img_h, img_w = img.shape[:2]
@@ -132,7 +132,8 @@ def collect_objects(file, src_dir, src_imgs_fname, src_anns_fname):
         obj_mask = mask[y_lt:y_rb+1, x_lt:x_rb+1] 
         
         obj_img = np.expand_dims(obj_mask, 2).repeat(3, axis=2)  * obj_rect
-        obj_blur = _blur_obj(obj_img)
+        # obj_blur = _blur_obj(obj_img)
+        obj_blur = obj_img
         relative_coord = rbbox
         relative_coord[:, 0] = relative_coord[:, 0] - x_lt
         relative_coord[:, 1] = relative_coord[:, 1] - y_lt
@@ -166,9 +167,6 @@ def _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_ob
     mask = np.zeros(img.shape)
     mask[proposed_h:proposed_h+h_obj, proposed_w:proposed_w+w_obj, :] = obj[0]
     img[mask!=0] = 0
-    obj_motion = _blur_obj(obj[0], theta=obj[2], mode='motion')
-    obj_motion[obj[0]==0] = 0
-    mask[proposed_h:proposed_h+h_obj, proposed_w:proposed_w+w_obj, :] = obj_motion
     img = img + mask
     poly = _write_ann(obj[1], ann_dir, proposed_h, proposed_w)
     rbboxs = np.vstack([rbboxs, poly])
@@ -198,28 +196,25 @@ def copy_paste(obj_collect, dst_dir, dst_imgs_fname, dst_anns_fname):
         ann_dir = osp.join(dst_anns_dir, ann)
         rbboxs, _, _= _single_collect(ann_dir)
         rbboxs = np.array(rbboxs).reshape(-1, 8)
-        num_gt = len(rbboxs) 
-        if num_gt >= 3:
-            continue
-        else:
-            select_num_obj = np.random.randint(0, 4-num_gt)
-            select_obj = random.choices(population=all_obj, k=select_num_obj)
-            for obj in select_obj:
-                h_obj, w_obj = obj[0].shape[:2]
-                if h_img<=h_obj or w_img<=w_obj:
-                    continue
-                proposed_h = random.randint(0, h_img-h_obj) 
-                proposed_w = random.randint(0, w_img-w_obj)
-                if num_gt == 0:
-                    img, rbboxs = _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_obj)
-                else:    
-                    rotated_bboxs = qbox2rbox(torch.tensor(rbboxs, dtype=int))   # rotated_bboxs shape is (..., 5) (xc, yc, w, h, t)
+        num_gts = len(rbboxs)
+        select_num_obj = np.random.randint(0, 3)
+        select_obj = random.choices(population=all_obj, k=select_num_obj)
+        for obj in select_obj:
+            h_obj, w_obj = obj[0].shape[:2]
+            if h_img<=h_obj or w_img<=w_obj:
+                continue
+            proposed_h = random.randint(0, h_img-h_obj) 
+            proposed_w = random.randint(0, w_img-w_obj)
+            if num_gts == 0:
+                img, rbboxs = _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_obj)
+            else:    
+                rotated_bboxs = qbox2rbox(torch.tensor(rbboxs, dtype=int))   # rotated_bboxs shape is (..., 5) (xc, yc, w, h, t)
+                iof = _is_overlap(proposed_h, proposed_w, h_obj, w_obj, rotated_bboxs)
+                while len(torch.nonzero(iof > 0.1)) != 0: 
+                    proposed_h = random.randint(0, h_img-h_obj) 
+                    proposed_w = random.randint(0, w_img-w_obj)
                     iof = _is_overlap(proposed_h, proposed_w, h_obj, w_obj, rotated_bboxs)
-                    while len(torch.nonzero(iof > 0.2)) != 0: 
-                        proposed_h = random.randint(0, h_img-h_obj) 
-                        proposed_w = random.randint(0, w_img-w_obj)
-                        iof = _is_overlap(proposed_h, proposed_w, h_obj, w_obj, rotated_bboxs)
-                    img, rbboxs = _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_obj)
+                img, rbboxs = _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_obj)
         cv2.imwrite(osp.join(dst_imgs_dir, file), img)
 
 
