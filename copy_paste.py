@@ -21,6 +21,7 @@ def get_args():
     parser.add_argument('--dst_imgs_fname', type=str, help='folder name for imgs', default='images')
     parser.add_argument('--dst_anns_fname', type=str, help='folder name for anns', default='annfiles')
     parser.add_argument('--classes', nargs='+', type=str, default='ship')
+    parser.add_argument('--bbox_type', type=str, help='bbox type for write to annotation', default='rbbox')
     return parser.parse_args()
 
 def make_folder(dir):
@@ -143,7 +144,7 @@ def collect_objects(file, src_dir, src_imgs_fname, src_anns_fname):
     
     return obj_collect
 
-def _write_ann(obj, ann_dir, h, w):
+def _write_rbbox_ann(obj, ann_dir, h, w):
     """write a poly annotation to ann file
 
     Args:
@@ -162,7 +163,29 @@ def _write_ann(obj, ann_dir, h, w):
         f.write(line)
     return poly
 
-def _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_obj):
+def _write_hbbox_ann(h, w, ann_dir, proposed_h, proposed_w):
+    """write a poly annotation to ann file, this function will write a hbbox 
+
+    Args:
+        h,w(int): bounding box for obj
+        ann_dir(str): dir of proposed annotation file
+        proposed_h(float): coord y for proposed obj
+        proposed_w(float): coord x for proposed obj
+    """
+    poly = np.array([proposed_w, proposed_h, 
+                     proposed_w + w, proposed_h,
+                     proposed_w + w, proposed_h + h,
+                     proposed_w, proposed_h + h])
+    line = ""
+    for i in poly:
+        line += str(i)+" " 
+    line += "ship 2\n"
+    with open(ann_dir, 'a+') as f:
+        f.write(line)
+    return poly
+
+
+def _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_obj, bbox_type):
     mask = np.zeros(img.shape)
     mask[proposed_h:proposed_h+h_obj, proposed_w:proposed_w+w_obj, :] = obj[0]
     img[mask!=0] = 0
@@ -170,7 +193,10 @@ def _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_ob
     obj_motion[obj[0]==0] = 0
     mask[proposed_h:proposed_h+h_obj, proposed_w:proposed_w+w_obj, :] = obj_motion
     img = img + mask
-    poly = _write_ann(obj[1], ann_dir, proposed_h, proposed_w)
+    if bbox_type == 'rbbox':
+        poly = _write_rbbox_ann(obj[1], ann_dir, proposed_h, proposed_w)
+    elif bbox_type == 'hbbox':
+        poly = _write_hbbox_ann(h_obj, w_obj, ann_dir, proposed_h, proposed_w)
     rbboxs = np.vstack([rbboxs, poly])
     return img, rbboxs
 
@@ -179,7 +205,7 @@ def _is_overlap(proposed_h, proposed_w, h_obj, w_obj, rbbox):
     iof = rbbox_overlaps(proposed_obj, rbbox.float(), mode='iof').squeeze()
     return iof
 
-def copy_paste(obj_collect, dst_dir, dst_imgs_fname, dst_anns_fname):
+def copy_paste(obj_collect, dst_dir, dst_imgs_fname, dst_anns_fname, bbox_type):
     """select some of obj_collect to paste dst imgs and anns
 
     Args:
@@ -202,7 +228,7 @@ def copy_paste(obj_collect, dst_dir, dst_imgs_fname, dst_anns_fname):
         if num_gt >= 3:
             continue
         else:
-            select_num_obj = np.random.randint(0, 4-num_gt)
+            select_num_obj = np.random.randint(0, 3-num_gt)
             select_obj = random.choices(population=all_obj, k=select_num_obj)
             for obj in select_obj:
                 h_obj, w_obj = obj[0].shape[:2]
@@ -211,7 +237,7 @@ def copy_paste(obj_collect, dst_dir, dst_imgs_fname, dst_anns_fname):
                 proposed_h = random.randint(0, h_img-h_obj) 
                 proposed_w = random.randint(0, w_img-w_obj)
                 if num_gt == 0:
-                    img, rbboxs = _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_obj)
+                    img, rbboxs = _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_obj, bbox_type)
                 else:    
                     rotated_bboxs = qbox2rbox(torch.tensor(rbboxs, dtype=int))   # rotated_bboxs shape is (..., 5) (xc, yc, w, h, t)
                     iof = _is_overlap(proposed_h, proposed_w, h_obj, w_obj, rotated_bboxs)
@@ -219,7 +245,7 @@ def copy_paste(obj_collect, dst_dir, dst_imgs_fname, dst_anns_fname):
                         proposed_h = random.randint(0, h_img-h_obj) 
                         proposed_w = random.randint(0, w_img-w_obj)
                         iof = _is_overlap(proposed_h, proposed_w, h_obj, w_obj, rotated_bboxs)
-                    img, rbboxs = _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_obj)
+                    img, rbboxs = _single_paste(img, obj, rbboxs, ann_dir, proposed_h, proposed_w, h_obj, w_obj, bbox_type)
         cv2.imwrite(osp.join(dst_imgs_dir, file), img)
 
 
@@ -233,6 +259,7 @@ def main():
     src_anns_fname = args.src_anns_fname
     dst_imgs_fname = args.dst_imgs_fname
     dst_anns_fname = args.dst_anns_fname
+    bbox_type = args.bbox_type
     
     # make_folder(osp.join(src_dir, "obj_vis"))
     # collect all object and return mask img with obj
@@ -243,7 +270,7 @@ def main():
     obj_collect = pool.map(func, fnames)
     
     # random choose obj to paste to dst img and update dst_anns
-    copy_paste(obj_collect, dst_dir, dst_imgs_fname, dst_anns_fname)
+    copy_paste(obj_collect, dst_dir, dst_imgs_fname, dst_anns_fname, bbox_type)
 
 if __name__ == '__main__':
     main()
