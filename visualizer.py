@@ -17,15 +17,16 @@ def get_args():
     parser.add_argument("--img-suffix", choices=[".png", ".tif", ".jpg"], 
             type=str, default=".png")
     parser.add_argument("--classes", nargs="+", type=str, default=None)
+    parser.add_argument("--ignore_empty", action="store_true", default=False)
     return parser.parse_args()
 
 
 def single_visualizer(ann_file, img_dir, save_img_dir,
-                      img_suffix=".png", classes=None):
+                      img_suffix=".png", classes=None, ignore_empty=False):
     with open(ann_file, "r") as f:
         lines = f.readlines()
 
-    if not len(lines):
+    if ignore_empty and not len(lines):
         return
 
     img_file = img_dir / (ann_file.stem +  img_suffix)
@@ -55,6 +56,7 @@ def main():
     ann_dir = args.ann_dir
     save_dir = Path(args.save_dir)
     img_suffix = args.img_suffix
+    ignore_empty = args.ignore_empty
     classes = args.classes
 
 
@@ -76,7 +78,8 @@ def main():
                         img_dir=img_dir, 
                         save_img_dir=save_img_dir, 
                         img_suffix=img_suffix,
-                        classes=classes)
+                        classes=classes,
+                        ignore_empty=ignore_empty)
 
     print("Begin visualize the images...")
 
