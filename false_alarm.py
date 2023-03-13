@@ -26,7 +26,7 @@ def get_args():
                             'cls_tp', 'cls_fp'
                         ],
                         default='f1_score')
-    parser.add_argument('--metric-thre', type=float, default=0.8)
+    parser.add_argument('--metric-thre', type=float, default=0.3)
     parser.add_argument('--img-suffix', type=str, default='.png')
     parser.add_argument('--visualizer_exec', type=str, default="./visualizer.py")
     return parser.parse_args()
@@ -207,17 +207,17 @@ def main():
     logger.info(f'apply metric {keep_metric} and thre {metric_thre}')
     if keep_metric in ['precision', 'recall', 'f1_score']:
         logger.info(
-            f'if metric val of the image gather than {metric_thre}, it will keep'
+            f'if metric val of the image less than {metric_thre}, it will be selected'
         )
         assert 0 <= metric_thre <= 1, f"{keep_metric} must be 0~1"
     elif keep_metric in ['tp', 'fp']:
         logger.info(
-            f'if metric val of the image less than {metric_thre}, it will keep'
+            f'if metric val of the image more than {metric_thre}, it will be selected'
         )
         assert metric_thre >= 0, f"{keep_metric} must >= 0"
     elif keep_metric in ['cls_tp', 'cls_fp']:
         logger.info(
-            f'if any val of the metric of the image less than {metric_thre}, it will keep'
+            f'if any val of the metric of the image more than {metric_thre}, it will be selected'
         )
         assert metric_thre >= 0, f"{keep_metric} must >= 0"
 
@@ -331,15 +331,15 @@ def main():
 
         if keep_metric in ['precision', 'recall', 'f1_score']:
             eval_val = single_img_eval_info[keep_metric]
-            if eval_val > metric_thre:
+            if eval_val < metric_thre:
                 keep_img.append(img_name)
         elif keep_metric in ['tp', 'fp']:
             eval_val = single_img_eval_info[keep_metric]
-            if eval_val < metric_thre:
+            if eval_val > metric_thre:
                 keep_img.append(img_name)
         elif keep_metric in ['cls_tp', 'cls_fp']:
             eval_val = single_img_eval_info[keep_metric]
-            if any(eval_val < m for m in single_img_eval_info[keep_metric]):
+            if any(eval_val > m for m in single_img_eval_info[keep_metric]):
                 keep_img.append(img_name)
         else:
             raise KeyError
