@@ -383,6 +383,7 @@ def main():
             save_label_file = save_label_dir / (img_name + ".txt")
             shutil.copyfile(ori_img_file, save_img_file)
             shutil.copyfile(ori_label_file, save_label_file)
+
     if args.visualizer_exec is not None:
         logger.info("begin visualizer ...")
         save_vis_dir = save_dir / "vis_dir"
