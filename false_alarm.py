@@ -210,14 +210,24 @@ def main():
             f'if metric val of the image less than {metric_thre}, it will be selected'
         )
         assert 0 <= metric_thre <= 1, f"{keep_metric} must be 0~1"
-    elif keep_metric in ['tp', 'fp']:
+    elif keep_metric in ['fp']:
         logger.info(
             f'if metric val of the image more than {metric_thre}, it will be selected'
         )
         assert metric_thre >= 0, f"{keep_metric} must >= 0"
-    elif keep_metric in ['cls_tp', 'cls_fp']:
+    elif keep_metric in ['tp']:
+        logger.info(
+            f'if metric val of the image less than {metric_thre}, it will be selected'
+        )
+        assert metric_thre >= 0, f"{keep_metric} must >= 0"
+    elif keep_metric in ['cls_fp']:
         logger.info(
             f'if any val of the metric of the image more than {metric_thre}, it will be selected'
+        )
+        assert metric_thre >= 0, f"{keep_metric} must >= 0"
+    elif keep_metric in ['cls_tp']:
+        logger.info(
+            f'if any val of the metric of the image less than {metric_thre}, it will be selected'
         )
         assert metric_thre >= 0, f"{keep_metric} must >= 0"
 
@@ -329,16 +339,17 @@ def main():
         single_img_eval_info["cls_fp"] = cls_fp
         img_eval_info[img_name] = single_img_eval_info
 
-        if keep_metric in ['precision', 'recall', 'f1_score']:
-            eval_val = single_img_eval_info[keep_metric]
+        eval_val = single_img_eval_info[keep_metric]
+        if keep_metric in ['precision', 'recall', 'f1_score', 'tp']:
             if eval_val < metric_thre:
                 keep_img.append(img_name)
-        elif keep_metric in ['tp', 'fp']:
-            eval_val = single_img_eval_info[keep_metric]
+        elif keep_metric in ['fp']:
             if eval_val > metric_thre:
                 keep_img.append(img_name)
-        elif keep_metric in ['cls_tp', 'cls_fp']:
-            eval_val = single_img_eval_info[keep_metric]
+        elif keep_metric in ['cls_tp']:
+            if any(eval_val < m for m in single_img_eval_info[keep_metric]):
+                keep_img.append(img_name)
+        elif keep_metric in ['cls_fp']:
             if any(eval_val > m for m in single_img_eval_info[keep_metric]):
                 keep_img.append(img_name)
         else:
@@ -371,7 +382,7 @@ def main():
     table = AsciiTable(table_data)
     table.inner_footing_row_border = True
 
-    logger.info('\neval results:' + table.table)
+    logger.info('\n********eval results********\n' + table.table)
 
     if len(keep_img) > 0:
         logger.info(f'{len(keep_img)} images meet the metric')
