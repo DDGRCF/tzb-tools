@@ -28,7 +28,7 @@ def get_args():
                         default='f1_score')
     parser.add_argument('--metric-thre', type=float, default=0.3)
     parser.add_argument('--img-suffix', type=str, default='.png')
-    parser.add_argument('--visualizer_exec', type=str, default="./visualizer.py")
+    parser.add_argument('--visualizer_exec', type=str, default=None)
     return parser.parse_args()
 
 
