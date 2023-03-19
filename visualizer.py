@@ -17,7 +17,7 @@ def get_args():
     parser.add_argument("--img-suffix", choices=[".png", ".tif", ".jpg"], 
             type=str, default=".png")
     parser.add_argument("--classes", nargs="+", type=str, default=None)
-    parser.add_argument("--ignore_empty", action="store_true", default=False)
+    parser.add_argument("--ignore_empty", action="store_true")
     return parser.parse_args()
 
 
@@ -26,7 +26,7 @@ def single_visualizer(ann_file, img_dir, save_img_dir,
     with open(ann_file, "r") as f:
         lines = f.readlines()
 
-    if ignore_empty and not len(lines):
+    if ignore_empty and len(lines) == 0:
         return
 
     img_file = img_dir / (ann_file.stem +  img_suffix)
@@ -48,6 +48,7 @@ def single_visualizer(ann_file, img_dir, save_img_dir,
         box = np.asarray(box, dtype=np.int32).reshape(-1, 1, 2)
         cv2.polylines(img, [box], True, [255, 255, 0], thickness=3)
     cv2.imwrite(str(save_img_file), img)
+    return 0
 
 def main():
     args = get_args()
@@ -83,7 +84,8 @@ def main():
 
     print("Begin visualize the images...")
 
-    process_map(deal_func, ann_set, chunksize=max(int(len(ann_set) / 10), 1))
+    res = process_map(deal_func, ann_set, chunksize=max(int(len(ann_set) / 10), 1))
+    list(res)
 
 
 if __name__ == "__main__":
