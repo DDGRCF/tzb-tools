@@ -95,14 +95,14 @@ def load_infos(data_path: Path,
 @logger.catch
 def main(opt):
     json_path = Path(opt.json_path)
-    dst_dir = Path(opt.dst_dir)
+    save_dir = Path(opt.save_dir)
     class_file = Path(opt.classes_file)
-    resp_mkdir(dst_dir)
+    resp_mkdir(save_dir)
 
     class_map = load_class(class_file)
     json_infos = load_infos(json_path, class_map, opt.ignore_classes, opt.score_thre)
     for class_name in tqdm(class_map):
-        class_dst_file = dst_dir / ("Task1_" + class_name + ".txt")
+        class_dst_file = save_dir / ("Task1_" + class_name + ".txt")
         with open(class_dst_file, "w") as f:
             for img_name in json_infos:
                 json_info = json_infos[img_name]
@@ -112,8 +112,8 @@ def main(opt):
                 for label, bbox, score in zip(labels, bboxes, scores):
                     if label != class_name:
                         continue
-                    line = [img_name, float(score)]
-                    bbox_str = map(str, bbox)
+                    line = [img_name, str(score)]
+                    bbox_str = list(map(str, bbox))
                     line.extend(bbox_str)
                     line = ' '.join(line) + '\n'
                     f.write(line)
