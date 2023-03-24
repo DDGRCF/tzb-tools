@@ -1,0 +1,3 @@
+[submodule "dota_split_cc"]
+	path = dota_split_cc
+	url = git@github.com:DDGRCF/dota_split_cc.git
