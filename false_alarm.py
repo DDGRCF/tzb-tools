@@ -1,9 +1,10 @@
 import argparse
 import json
-import os
+import pickle as pkl
 import shutil
 from pathlib import Path
 
+import cv2
 import numpy as np
 import torch
 from loguru import logger
@@ -16,19 +17,24 @@ from tqdm import tqdm
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('res_dir', type=str, default=None)
-    parser.add_argument('gt_dir', type=str, default=None)
     parser.add_argument('save_dir', type=str, default=None)
     parser.add_argument('classes_file', type=str, default=None)
+
+    parser.add_argument('--gt-dir', type=str, default=None)
     parser.add_argument('--img-dir', type=str, default=None)
+
+    parser.add_argument('--load-type', choices=['dota', 'coco', 'pkl'], type=str, default="pkl")
+
     parser.add_argument('--keep-metric',
                         choices=[
                             'f1_score', 'precision', 'recall', 'tp', 'fp',
                             'cls_tp', 'cls_fp'
                         ],
                         default='f1_score')
-    parser.add_argument('--metric-thre', type=float, default=0.3)
+    parser.add_argument('--metric-thre', type=float, default=0.05)
+    parser.add_argument('--score-thre', type=float, default=0.05)
     parser.add_argument('--img-suffix', type=str, default='.png')
-    parser.add_argument('--visualizer_exec', type=str, default=None)
+    parser.add_argument('--visualizer', action="store_true", default=False)
     return parser.parse_args()
 
 
@@ -49,39 +55,75 @@ def resp_mkdir(dirname: Path, msg: str = None):
         dirname.mkdir()
 
 
-def load_dota_gt(data_path: Path, ignore_classes: list = None) -> dict:
-    if not isinstance(data_path, Path):
-        data_path = Path(data_path)
-    glob_label_files = list(data_path.glob("*.txt"))
+def load_dota_gt(data_path: Path, 
+                 classes_map: dict, 
+                 mode="dota", 
+                 ignore_classes: list = None) -> dict:
 
-    infos = {}
     logger.info("load dota ground truth info ...")
-    for label_file_path in tqdm(glob_label_files, desc="loading", ncols=100):
-        file_stem = label_file_path.stem
-        with open(label_file_path, "r") as f:
-            lines = f.readlines()
-        single_info = {"bboxes": [], "labels": []}
-        for line in lines:
-            if line.startswith('imagesource') or \
-            line.startswith('gsd') or \
-            line.startswith('NaN'):
-                continue
-            line = line.strip()
-            line = line.split(' ')
-            class_name = line[-2]
-            if ignore_classes is not None and class_name in ignore_classes:
-                continue
-            box = list(map(float, line[:8]))
-            single_info["bboxes"].append(box)
-            single_info["labels"].append(class_name)
-        infos[file_stem] = single_info
-    logger.info("finish loading dota ann!")
+    if mode == "coco" or mode == "dota":
+        if not isinstance(data_path, Path):
+            data_path = Path(data_path)
+        glob_label_files = list(data_path.glob("*.txt"))
+
+        infos = {}
+        for label_file_path in tqdm(glob_label_files, desc="loading", ncols=100):
+            file_stem = label_file_path.stem
+            with open(label_file_path, "r") as f:
+                lines = f.readlines()
+            single_info = {"bboxes": [], "labels": []}
+            for line in lines:
+                if line.startswith('imagesource') or \
+                line.startswith('gsd') or \
+                line.startswith('NaN'):
+                    continue
+                line = line.strip()
+                line = line.split(' ')
+                class_name = line[-2]
+                if ignore_classes is not None and class_name in ignore_classes:
+                    continue
+                box = list(map(float, line[:8]))
+                single_info["bboxes"].append(box)
+                single_info["labels"].append(class_name)
+            infos[file_stem] = single_info
+        logger.info("finish loading dota ann!")
+
+    elif mode == "pkl":
+        reverse_classes_map = {v:k for k, v in classes_map.items()}
+        with open(data_path, "rb") as f:
+            data = pkl.load(f)
+
+        infos = {}
+        for data_item in tqdm(data, desc="loading...", ncols=100):
+            img_path = Path(data_item["img_path"])
+            img_name = img_path.stem
+            gt_instances = data_item["gt_instances"]
+            bboxes = gt_instances["bboxes"]
+            labels = gt_instances["labels"]
+
+            single_info = {"bboxes": [], "labels": []}
+            for box_torch, label_torch in zip(bboxes, labels):
+                box = rbox2qbox(box_torch[None])[0]
+                box = box.tolist()
+                label = label_torch.tolist()
+                class_name = reverse_classes_map[label]
+                if ignore_classes is not None and class_name in ignore_classes:
+                    continue
+                single_info["bboxes"].append(box)
+                single_info["labels"].append(class_name)
+            infos[img_name] = single_info
+    else:
+        raise NotImplementedError
         
 
     return infos
 
 
-def load_dota_res(data_path: Path, classes_map: dict, mode="coco", ignore_classes: list = None) -> dict:
+def load_dota_res(data_path: Path, 
+                  classes_map: dict, 
+                  mode="coco", 
+                  ignore_classes: list = None, 
+                  score_thre=0.05) -> dict:
     if not isinstance(data_path, Path):
         data_path = Path(data_path)
 
@@ -106,6 +148,7 @@ def load_dota_res(data_path: Path, classes_map: dict, mode="coco", ignore_classe
                 line = line.split(' ')
                 img_name = line[0]
                 score = float(line[1])
+                if score < score_thre: continue
                 box = list(map(float, line[2:]))
                 if img_name in infos:
                     infos[img_name]["bboxes"].append(box)
@@ -131,6 +174,7 @@ def load_dota_res(data_path: Path, classes_map: dict, mode="coco", ignore_classe
             box_torch = box_torch[0]
             box = box_torch.tolist()
             score = data_item["score"]
+            if score < score_thre: continue
             class_name = reverse_classes_map[data_item['category_id']]
             if ignore_classes is not None and class_name in ignore_classes:
                 continue
@@ -145,6 +189,36 @@ def load_dota_res(data_path: Path, classes_map: dict, mode="coco", ignore_classe
                     "scores": [score],
                     "labels": [class_name]
                 }
+    
+    elif mode == "pkl":
+        reverse_classes_map = {v:k for k, v in classes_map.items()}
+        with open(data_path, "rb") as f:
+            data = pkl.load(f)
+        infos = {}
+        for data_item in tqdm(data, desc="loading...", ncols=100):
+            img_path = Path(data_item["img_path"])
+            img_name = img_path.stem
+            pred_instances = data_item["pred_instances"]
+            bboxes = pred_instances["bboxes"]
+            labels = pred_instances["labels"]
+            scores = pred_instances["scores"]
+            if len(labels) == 0: continue
+
+            single_info = dict(bboxes = [], scores = [], labels = [])
+            for box_torch, label_torch, score_torch in zip(bboxes, labels, scores):
+                box = rbox2qbox(box_torch[None])[0]
+                box = box.tolist()
+                label = label_torch.tolist()
+                score = score_torch.tolist()
+                if score < score_thre: continue
+                class_name = reverse_classes_map[label]
+                if ignore_classes is not None and class_name in ignore_classes:
+                    continue
+                single_info["bboxes"].append(box)
+                single_info["labels"].append(class_name)
+                single_info["scores"].append(score)
+            infos[img_name] = single_info
+            
 
     logger.info("finish load dota results!")
     return infos
@@ -166,36 +240,29 @@ def load_class(file_path: Path, ignore_classes: list = None) -> dict:
             continue
         infos[class_name] = i
     return infos
-    # glob_label_files = list(file_path.glob("*.txt"))
-
-    # infos = {}
-    # index = 0
-    # for label_file_path in glob_label_files:
-    #     file_stem = label_file_path.stem
-    #     if file_stem.startswith("Task1"):
-    #         class_name = file_stem[file_stem.find("_") + 1:]
-    #     else:
-    #         class_name = file_stem
-    #     if ignore_classes is not None and class_name in ignore_classes:
-    #         continue
-    #     if class_name not in infos:
-    #         infos[class_name] = index
-    #         index = index + 1
-
-    # return infos
 
 
 def main():
     args = get_args()
     assert args.res_dir is not None
-    assert args.gt_dir is not None
     assert args.save_dir is not None
 
     res_dir = Path(args.res_dir)
-    gt_dir = Path(args.gt_dir)
     save_dir = Path(args.save_dir)
-    img_dir = Path(args.img_dir)
     classes_file = Path(args.classes_file)
+    load_type = args.load_type
+    score_thre = args.score_thre
+
+    gt_dir = args.gt_dir
+    img_dir = args.img_dir
+
+    assert gt_dir is not None, "gt_dir is None"
+
+    if args.visualizer:
+        assert img_dir is not None, "img_dir is None"
+        img_dir = Path(img_dir)
+
+    gt_dir = Path(gt_dir)
 
     img_suffix = args.img_suffix
     save_img_dir = save_dir / "images"
@@ -232,13 +299,14 @@ def main():
         assert metric_thre >= 0, f"{keep_metric} must >= 0"
 
     assert res_dir.exists(), f"{res_dir} don't exist"
-    assert gt_dir.exists(), f"{gt_dir} don't exist"
+
     resp_mkdir(save_img_dir)
     resp_mkdir(save_label_dir)
 
     class_map = load_class(classes_file)
-    res_infos = load_dota_res(res_dir, class_map)
-    gt_infos = load_dota_gt(gt_dir)
+    res_infos = load_dota_res(res_dir, class_map, load_type, score_thre = score_thre)
+    gt_infos = load_dota_gt(gt_dir, class_map)
+
     logger.info(f"load {len(class_map)} classes")
     logger.info(f"load {len(res_infos)} results")
     logger.info(f"load {len(gt_infos)} ground truth")
@@ -347,10 +415,10 @@ def main():
             if eval_val > metric_thre:
                 keep_img.append(img_name)
         elif keep_metric in ['cls_tp']:
-            if any(eval_val < m for m in single_img_eval_info[keep_metric]):
+            if any(eval_val < m for m in eval_val):
                 keep_img.append(img_name)
         elif keep_metric in ['cls_fp']:
-            if any(eval_val > m for m in single_img_eval_info[keep_metric]):
+            if any(eval_val > m for m in eval_val):
                 keep_img.append(img_name)
         else:
             raise KeyError
@@ -395,13 +463,55 @@ def main():
             shutil.copyfile(ori_img_file, save_img_file)
             shutil.copyfile(ori_label_file, save_label_file)
 
-    if args.visualizer_exec is not None:
-        logger.info("begin visualizer ...")
-        save_vis_dir = save_dir / "vis_dir"
-        resp_mkdir(save_vis_dir)
-        commandline = f"python {args.visualizer_exec} {save_dir} --save-dir {save_vis_dir} --img-dir images"
-        f" --ann-dir labels --img-suffix {img_suffix} "
-        os.system(commandline)
+    if args.visualizer:
+        logger.info(f"visualizer images...")
+        vis_dir = save_dir / "vis_dir"
+        resp_mkdir(vis_dir)
+
+        def visualizer(img_name: str):
+            ann = res_infos[img_name]
+            gt = gt_infos[img_name]
+            img_file = img_dir / (img_name + img_suffix)
+            img = cv2.imread(str(img_file))
+            assert img is not None
+            ann_bboxes = ann["bboxes"]
+            ann_labels = ann["labels"]
+            ann_scores = ann["scores"]
+
+            gt_bboxes = gt["bboxes"]
+            gt_labels = gt["labels"]
+            vis_path = vis_dir / (img_name + img_suffix)
+
+            for ann_bbox, ann_label, ann_score in zip(ann_bboxes, ann_labels, ann_scores):
+                info = f"{ann_label}:{ann_score:.3f}" 
+                ann_bbox_np = np.asarray(ann_bbox[:8], dtype=np.int32).reshape(-1, 1, 2)
+                ctr_x = ann_bbox_np[:, 0, 0].mean()
+                ctr_y = ann_bbox_np[:, 0, 1].mean()
+
+                cv2.putText(img, info, (int(ctr_x), int(ctr_y)), 
+                            fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, 
+                            color=(0, 0, 255), thickness=2)
+
+                cv2.polylines(img, [ann_bbox_np], True, (255, 0, 0), thickness=3)
+            
+            for gt_bbox, gt_label in zip(gt_bboxes, gt_labels):
+                info = f"{gt_label}" 
+                gt_bbox_np = np.asarray(gt_bbox, dtype=np.int32).reshape(-1, 1, 2)
+                ctr_x = gt_bbox_np[:, 0, 0].mean()
+                ctr_y = gt_bbox_np[:, 0, 1].mean()
+
+                cv2.putText(img, info, (int(ctr_x), int(ctr_y)), 
+                            fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, 
+                            color=(0, 0, 255), thickness=2)
+
+                cv2.polylines(img, [gt_bbox_np], True, (0, 255, 0), thickness=3)
+            cv2.imwrite(str(vis_path), img)
+            
+        
+        res = list(map(visualizer, keep_img))
+        # res = process_map(visualizer, keep_img, chunksize=max(int(len(keep_img) / 10), 1))
+
+
 
 
 if __name__ == "__main__":

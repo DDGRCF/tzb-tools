@@ -1,2 +1,6 @@
 test_dir/
 .vscode/
+check_checkpoints.py
+collect_images.py
+collect_ship.py
+collect.py

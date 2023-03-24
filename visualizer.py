@@ -46,6 +46,9 @@ def single_visualizer(ann_file, img_dir, save_img_dir,
             continue
         box = list(map(float, line[0:8]))
         box = np.asarray(box, dtype=np.int32).reshape(-1, 1, 2)
+        ctr_x = box[:, 0, 0].mean()
+        ctr_y = box[:, 0, 1].mean()
+        cv2.putText(img, class_name, (int(ctr_x), int(ctr_y)), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, color=(255, 0, 255), thickness=2)
         cv2.polylines(img, [box], True, [255, 255, 0], thickness=3)
     cv2.imwrite(str(save_img_file), img)
     return 0
@@ -59,7 +62,6 @@ def main():
     img_suffix = args.img_suffix
     ignore_empty = args.ignore_empty
     classes = args.classes
-
 
     img_dir = ori_dir / img_dir
     ann_dir = ori_dir / ann_dir
