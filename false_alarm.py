@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from loguru import logger
 from mmrotate.evaluation.functional.mean_ap import tpfp_default
-from mmrotate.structures import rbox2qbox
+from mmrotate.structures import rbox2qbox, hbox2qbox
 from terminaltables import AsciiTable
 from tqdm import tqdm
 
@@ -31,10 +31,10 @@ def get_args():
                             'cls_tp', 'cls_fp'
                         ],
                         default='f1_score')
-    parser.add_argument('--metric-thre', type=float, default=0.05)
+    parser.add_argument('--metric-thre', type=float, default=1)
     parser.add_argument('--score-thre', type=float, default=0.05)
     parser.add_argument('--img-suffix', type=str, default='.png')
-    parser.add_argument('--visualizer', action="store_true", default=False)
+    parser.add_argument('--visualizer', action="store_true", default=True)
     return parser.parse_args()
 
 
@@ -169,9 +169,11 @@ def load_dota_res(data_path: Path,
         for data_item in tqdm(data, desc="loading...", ncols=100):
             img_name = data_item['image_id']
             box = data_item['bbox']
-            box_torch = torch.tensor(box, dtype=torch.float32)[None]
-            box_torch = rbox2qbox(box_torch)
-            box_torch = box_torch[0]
+            box_torch = torch.tensor(box, dtype=torch.float32)
+            if len(box_torch) == 5:
+                box = rbox2qbox(box_torch[None])[0]
+            elif len(box_torch) == 4:               
+                box = hbox2qbox(box_torch[None])[0]
             box = box_torch.tolist()
             score = data_item["score"]
             if score < score_thre: continue
@@ -206,7 +208,11 @@ def load_dota_res(data_path: Path,
 
             single_info = dict(bboxes = [], scores = [], labels = [])
             for box_torch, label_torch, score_torch in zip(bboxes, labels, scores):
-                box = rbox2qbox(box_torch[None])[0]
+                if len(box_torch) == 5:
+                    box = rbox2qbox(box_torch[None])[0]
+                elif len(box_torch) == 4:               
+                    box = hbox2qbox(box_torch[None])[0]
+
                 box = box.tolist()
                 label = label_torch.tolist()
                 score = score_torch.tolist()
@@ -378,8 +384,10 @@ def main():
         total_tp = 0
         cls_fp = []
         cls_tp = []
+        num_gts = 0
         for i, (res_bboxes,
                 gt_bboxes) in enumerate(zip(res_bboxes_list, gt_bboxes_list)):
+            num_gts += len(gt_bboxes)
             tp, fp = tpfp_default(res_bboxes,
                                   gt_bboxes,
                                   np.empty((0, 8), dtype=np.float32),
@@ -395,12 +403,14 @@ def main():
             classes_gt[i] += len(gt_bboxes)
             cls_tp.append(tp.sum())
             cls_fp.append(fp.sum())
-        single_img_eval_info["precision"] = precision = (total_tp + eps) / (
-            total_tp + total_fp + eps)
-        single_img_eval_info["recall"] = recall = (total_tp + eps) / (
-            len(gt_info["bboxes"]) + eps)
-        single_img_eval_info["f1_score"] = (2 * precision * recall +
-                                            eps) / (precision + recall + eps)
+
+        single_img_eval_info["precision"] = precision = total_tp / \
+            max(total_tp + total_fp, eps)
+        single_img_eval_info["recall"] = recall = total_tp / \
+            max(len(gt_info["bboxes"]), eps)
+
+        single_img_eval_info["f1_score"] = precision * recall / \
+            max(precision + recall, eps) if num_gts != 0 else 0
         single_img_eval_info["tp"] = tp
         single_img_eval_info["fp"] = fp
         single_img_eval_info["cls_tp"] = cls_tp
