@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from loguru import logger
 from mmrotate.evaluation.functional.mean_ap import tpfp_default
-from mmrotate.structures import rbox2qbox, hbox2qbox
+from mmrotate.structures import hbox2qbox, rbox2qbox
 from terminaltables import AsciiTable
 from tqdm import tqdm
 
@@ -479,30 +479,32 @@ def main():
         resp_mkdir(vis_dir)
 
         def visualizer(img_name: str):
-            ann = res_infos[img_name]
+            ann = res_infos[img_name] if img_name in res_infos else None
             gt = gt_infos[img_name]
             img_file = img_dir / (img_name + img_suffix)
             img = cv2.imread(str(img_file))
             assert img is not None
-            ann_bboxes = ann["bboxes"]
-            ann_labels = ann["labels"]
-            ann_scores = ann["scores"]
+            if ann is not None:
+                ann_bboxes = ann["bboxes"]
+                ann_labels = ann["labels"]
+                ann_scores = ann["scores"]
 
             gt_bboxes = gt["bboxes"]
             gt_labels = gt["labels"]
             vis_path = vis_dir / (img_name + img_suffix)
 
-            for ann_bbox, ann_label, ann_score in zip(ann_bboxes, ann_labels, ann_scores):
-                info = f"{ann_label}:{ann_score:.3f}" 
-                ann_bbox_np = np.asarray(ann_bbox[:8], dtype=np.int32).reshape(-1, 1, 2)
-                ctr_x = ann_bbox_np[:, 0, 0].mean()
-                ctr_y = ann_bbox_np[:, 0, 1].mean()
+            if ann is not None:
+                for ann_bbox, ann_label, ann_score in zip(ann_bboxes, ann_labels, ann_scores):
+                    info = f"{ann_label}:{ann_score:.3f}" 
+                    ann_bbox_np = np.asarray(ann_bbox[:8], dtype=np.int32).reshape(-1, 1, 2)
+                    ctr_x = ann_bbox_np[:, 0, 0].mean()
+                    ctr_y = ann_bbox_np[:, 0, 1].mean()
 
-                cv2.putText(img, info, (int(ctr_x), int(ctr_y)), 
-                            fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, 
-                            color=(0, 0, 255), thickness=2)
+                    cv2.putText(img, info, (int(ctr_x), int(ctr_y)), 
+                                fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, 
+                                color=(0, 0, 255), thickness=2)
 
-                cv2.polylines(img, [ann_bbox_np], True, (255, 0, 0), thickness=3)
+                    cv2.polylines(img, [ann_bbox_np], True, (255, 0, 0), thickness=3)
             
             for gt_bbox, gt_label in zip(gt_bboxes, gt_labels):
                 info = f"{gt_label}" 
@@ -519,7 +521,6 @@ def main():
             
         
         res = list(map(visualizer, keep_img))
-        # res = process_map(visualizer, keep_img, chunksize=max(int(len(keep_img) / 10), 1))
 
 
 
