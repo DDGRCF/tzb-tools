@@ -31,7 +31,7 @@ def get_args():
                             'cls_tp', 'cls_fp'
                         ],
                         default='f1_score')
-    parser.add_argument('--metric-thre', type=float, default=1)
+    parser.add_argument('--metric-thre', type=float, default=0.5)
     parser.add_argument('--score-thre', type=float, default=0.05)
     parser.add_argument('--img-suffix', type=str, default='.png')
     parser.add_argument('--visualizer', action="store_true", default=True)
@@ -404,13 +404,13 @@ def main():
             cls_tp.append(tp.sum())
             cls_fp.append(fp.sum())
 
-        single_img_eval_info["precision"] = precision = total_tp / \
-            max(total_tp + total_fp, eps)
-        single_img_eval_info["recall"] = recall = total_tp / \
-            max(len(gt_info["bboxes"]), eps)
+        single_img_eval_info["precision"] = precision = (total_tp + eps) / \
+            (total_tp + total_fp + eps)
+        single_img_eval_info["recall"] = recall = (total_tp + eps) / \
+            (len(gt_info["bboxes"]) + eps)
 
         single_img_eval_info["f1_score"] = precision * recall / \
-            max(precision + recall, eps) if num_gts != 0 else 0
+            max(precision + recall, eps) 
         single_img_eval_info["tp"] = tp
         single_img_eval_info["fp"] = fp
         single_img_eval_info["cls_tp"] = cls_tp
