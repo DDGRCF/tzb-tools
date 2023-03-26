@@ -34,7 +34,7 @@ def get_args():
     parser.add_argument('--metric-thre', type=float, default=0.5)
     parser.add_argument('--score-thre', type=float, default=0.05)
     parser.add_argument('--img-suffix', type=str, default='.png')
-    parser.add_argument('--visualizer', action="store_true", default=True)
+    parser.add_argument('--visualizer', action="store_true", default=False)
     return parser.parse_args()
 
 
@@ -266,8 +266,8 @@ def main():
 
     if args.visualizer:
         assert img_dir is not None, "img_dir is None"
-        img_dir = Path(img_dir)
-
+        
+    img_dir = Path(img_dir)
     gt_dir = Path(gt_dir)
 
     img_suffix = args.img_suffix
